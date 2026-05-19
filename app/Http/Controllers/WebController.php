@@ -1274,7 +1274,9 @@ class WebController extends Controller
                     });
                 })
                 ->with(['contract', 'payments' => function ($query) {
-                    $query->select('id', 'quota_id', 'date');
+                    $query->where('deleted', 0)
+                        ->with('payment_method')
+                        ->select('id', 'quota_id', 'amount', 'payment_method_id', 'date', 'due_days', 'image', 'people');
                 }])
                 ->orderBy('date', 'DESC')
                 ->orderBy('id', 'DESC')
@@ -1305,6 +1307,27 @@ class WebController extends Controller
                             return $q->payments;
                         })
                         ->max('date');
+                    $payments = $group
+                        ->flatMap(function ($q) {
+                            return $q->payments->map(function ($payment) use ($q) {
+                                $methodName = optional($payment->payment_method)->name ?? 'N/A';
+                                if ((int) optional($payment->payment_method)->id === 1 || strtoupper($methodName) === 'EFECTIVO') {
+                                    $methodName = 'Retanqueo';
+                                }
+
+                                return [
+                                    'id' => $payment->id,
+                                    'person_name' => $q->person_name,
+                                    'amount' => $payment->amount,
+                                    'payment_method' => $methodName,
+                                    'payment_date' => $payment->date ? $payment->date->format('d/m/Y') : null,
+                                    'due_days' => $payment->due_days,
+                                    'image' => $payment->image ? asset('storage/' . $payment->image) : null,
+                                ];
+                            });
+                        })
+                        ->sortByDesc('id')
+                        ->values();
 
                     $clientLabel = $contract ? $contract->client() : 'N/A';
                     if ($contract && $contract->client_type === 'Grupo') {
@@ -1324,6 +1347,7 @@ class WebController extends Controller
                         'due_date' => $first->date ? $first->date->format('d/m/Y') : null,
                         'payment_date' => $paymentDate ? \Carbon\Carbon::parse($paymentDate)->format('d/m/Y') : null,
                         'paid' => $allPaid,
+                        'payments' => $payments,
                     ];
                 })
                 ->values();
