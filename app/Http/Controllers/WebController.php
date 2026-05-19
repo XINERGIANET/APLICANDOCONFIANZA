@@ -1012,10 +1012,11 @@ class WebController extends Controller
             return $completionDate && $completionDate->isSameDay($payment->quota->date);
         })->sum('amount');
 
-        //PROYECTADO PARA HOY : todo lo que está en el rango de fechas (pagado y no pagado)
+        //PROYECTADO PARA HOY : solo cuotas pagadas dentro del rango
 
         //Personas por documento (agrupado por cliente + Número de cuota)
-        $today_projected_people = Quota::query()
+        $projectedClientKey = "COALESCE(CASE WHEN contracts.client_type = 'Personal' THEN COALESCE(contracts.document, contracts.name) ELSE COALESCE(contracts.group_name, contracts.name) END,'')";
+        $todayProjectedPeopleQuery = Quota::query()
             ->when($request->start_date_1, function ($query, $start_date) {
                 return $query->whereDate('quotas.date', '>=', $start_date);
             })
@@ -1039,8 +1040,13 @@ class WebController extends Controller
             })
             ->join('contracts', 'contracts.id', '=', 'quotas.contract_id')
             ->where('contracts.deleted', 0)
-            ->selectRaw("COUNT(DISTINCT CONCAT(COALESCE(CASE WHEN contracts.client_type = 'Personal' THEN COALESCE(contracts.document, contracts.name) ELSE COALESCE(contracts.group_name, contracts.name) END,''),'|',COALESCE(quotas.number,''))) as total")
-            ->value('total');
+            ->selectRaw($projectedClientKey . ' as client_key, quotas.number')
+            ->groupByRaw($projectedClientKey . ', quotas.number')
+            ->havingRaw('SUM(CASE WHEN quotas.paid = 0 THEN 1 ELSE 0 END) = 0');
+
+        $today_projected_people = DB::query()
+            ->fromSub($todayProjectedPeopleQuery, 'projected_people')
+            ->count();
         //Monto en soles
         $today_projected = Quota::active()
             ->when($request->start_date_1, function ($query, $start_date) {
@@ -1064,6 +1070,7 @@ class WebController extends Controller
                     return $q->where('seller_id', $seller_id);
                 });
             })
+            ->where('paid', 1)
             ->sum('amount');
 
         $advance_people = (int) ($today_advance_payments_people ?? 0);
@@ -1281,6 +1288,11 @@ class WebController extends Controller
                         ? ($contract->document ?: $contract->name ?? '')
                         : ($contract->group_name ?: $contract->name ?? '');
                     return ($clientKey ?: 'none') . '|' . ($quota->number ?? 'none');
+                })
+                ->filter(function ($group) {
+                    return $group->every(function ($q) {
+                        return $q->paid == 1;
+                    });
                 })
                 ->map(function ($group) {
                     $first = $group->first();
