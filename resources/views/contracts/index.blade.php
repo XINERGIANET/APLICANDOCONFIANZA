@@ -404,7 +404,7 @@
                             </div>
                             <div class="col-lg-4">
                                 <div class="mb-3">
-                                    <label class="form-label required">Número de meses</label>
+                                    <label class="form-label required">Número de cuotas</label>
                                     <input type="text" class="form-control" name="months_number" autocomplete="off">
                                 </div>
                             </div>
