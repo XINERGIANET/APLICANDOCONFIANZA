@@ -184,9 +184,11 @@ class ContractController extends Controller
             : 15;
 
         $percentage = round($monthlyInterestPercentage * $monthsForInterest, 2);
-        $interest = round($requestedAmount * ($monthlyInterestPercentage / 100) * $monthsForInterest, 2);
-        $payable_amount = round($requestedAmount + $interest, 2);
-        $quotaAmounts = $this->buildAdjustedQuotaAmounts($payable_amount, $quotas);
+        $rawInterest = round($requestedAmount * ($monthlyInterestPercentage / 100) * $monthsForInterest, 2);
+        $rawPayableAmount = round($requestedAmount + $rawInterest, 2);
+        $quotaAmounts = $this->buildAdjustedQuotaAmounts($rawPayableAmount, $quotas);
+        $payable_amount = round(array_sum($quotaAmounts), 2);
+        $interest = round($payable_amount - $requestedAmount, 2);
         $quota = $quotaAmounts[0] ?? 0;
 
         $count = DB::table('config')->pluck('number_pagare')->first();
@@ -322,9 +324,12 @@ class ContractController extends Controller
             }
 
             $createdQuotaTotal = round($contract->quotas()->sum('amount'), 2);
-            if (abs($createdQuotaTotal - round($payable_amount, 2)) > 0.01) {
-                throw new \Exception('La suma de las cuotas no coincide con el monto total a devolver.');
-            }
+            $payable_amount = $createdQuotaTotal;
+            $interest = round($payable_amount - $requestedAmount, 2);
+            $contract->update([
+                'interest' => $interest,
+                'payable_amount' => $payable_amount,
+            ]);
 
             DB::table('config')->update([
                 'number_pagare' => $number_pagare
@@ -362,16 +367,9 @@ class ContractController extends Controller
     private function buildAdjustedQuotaAmounts(float $total, int $quotaCount): array
     {
         $quotaCount = max(1, $quotaCount);
-        $baseAmount = floor(($total / $quotaCount) * 100) / 100;
-        $amounts = array_fill(0, $quotaCount, $baseAmount);
-        $amounts[$quotaCount - 1] = round($total - ($baseAmount * ($quotaCount - 1)), 2);
+        $roundedQuota = ceil(($total / $quotaCount) * 10) / 10;
 
-        $difference = round($total - array_sum($amounts), 2);
-        if (abs($difference) >= 0.01) {
-            $amounts[$quotaCount - 1] = round($amounts[$quotaCount - 1] + $difference, 2);
-        }
-
-        return $amounts;
+        return array_fill(0, $quotaCount, round($roundedQuota, 2));
     }
 
     private function buildMemberPayables(array $members, float $payableAmount, float $totalRequested): array
@@ -442,9 +440,11 @@ class ContractController extends Controller
                 $monthsForInterest = $quotas / 4;
                 $monthlyInterestPercentage = $this->normalizeMoney($request->monthly_interest);
                 $percentage = round($monthlyInterestPercentage * $monthsForInterest, 2);
-                $interest = round($requestedAmount * ($monthlyInterestPercentage / 100) * $monthsForInterest, 2);
-                $payableAmount = round($requestedAmount + $interest, 2);
-                $quotaAmounts = $this->buildAdjustedQuotaAmounts($payableAmount, $quotas);
+                $rawInterest = round($requestedAmount * ($monthlyInterestPercentage / 100) * $monthsForInterest, 2);
+                $rawPayableAmount = round($requestedAmount + $rawInterest, 2);
+                $quotaAmounts = $this->buildAdjustedQuotaAmounts($rawPayableAmount, $quotas);
+                $payableAmount = round(array_sum($quotaAmounts), 2);
+                $interest = round($payableAmount - $requestedAmount, 2);
                 $date = Carbon::parse($request->date);
                 $quotaDates = [];
 
@@ -504,9 +504,12 @@ class ContractController extends Controller
                 }
 
                 $createdQuotaTotal = round($contract->quotas()->sum('amount'), 2);
-                if (abs($createdQuotaTotal - round($payableAmount, 2)) > 0.01) {
-                    throw new \Exception('La suma de las cuotas no coincide con el monto total a devolver.');
-                }
+                $payableAmount = $createdQuotaTotal;
+                $interest = round($payableAmount - $requestedAmount, 2);
+                $contract->update([
+                    'interest' => $interest,
+                    'payable_amount' => $payableAmount,
+                ]);
 
                 DB::commit();
 
