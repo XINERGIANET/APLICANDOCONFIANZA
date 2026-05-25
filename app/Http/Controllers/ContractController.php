@@ -401,6 +401,10 @@ class ContractController extends Controller
         $validator = Validator::make($request->all(), [
             'seller_id' => 'nullable|integer|exists:users,id',
             'number_pagare' => 'nullable|integer',
+            'recalculate_schedule' => 'nullable|boolean',
+            'quotas_number' => 'required_if:recalculate_schedule,1|nullable|integer|min:1',
+            'monthly_interest' => 'required_if:recalculate_schedule,1|nullable|numeric|min:0',
+            'date' => 'required_if:recalculate_schedule,1|nullable|date',
         ]);
 
         if ($validator->fails()) {
@@ -410,8 +414,9 @@ class ContractController extends Controller
             ]);
         }
 
-        $found_number = Contract::where('deleted',0)
+        $found_number = $request->filled('number_pagare') && Contract::where('deleted',0)
         ->where('number_pagare',$request->number_pagare)
+        ->where('id', '!=', $contract->id)
         ->exists();
 
         if($found_number){
@@ -419,6 +424,104 @@ class ContractController extends Controller
                 'status' => false,
                 'error' => 'Ya existe un contrato con ese número de pagaré'
             ]);
+        }
+
+        if ($request->boolean('recalculate_schedule')) {
+            if ($contract->quotas()->whereHas('payments')->exists()) {
+                return response()->json([
+                    'status' => false,
+                    'error' => 'No se puede recalcular un contrato que ya tiene pagos registrados.'
+                ]);
+            }
+
+            DB::beginTransaction();
+
+            try {
+                $requestedAmount = $this->normalizeMoney($contract->requested_amount);
+                $quotas = max(1, (int) $request->quotas_number);
+                $monthsForInterest = $quotas / 4;
+                $monthlyInterestPercentage = $this->normalizeMoney($request->monthly_interest);
+                $percentage = round($monthlyInterestPercentage * $monthsForInterest, 2);
+                $interest = round($requestedAmount * ($monthlyInterestPercentage / 100) * $monthsForInterest, 2);
+                $payableAmount = round($requestedAmount + $interest, 2);
+                $quotaAmounts = $this->buildAdjustedQuotaAmounts($payableAmount, $quotas);
+                $date = Carbon::parse($request->date);
+                $quotaDates = [];
+
+                for ($i = 1; $i <= $quotas; $i++) {
+                    $quotaDate = $date->copy()->addWeeks($i - 1);
+                    $quotaDates[] = [
+                        'number' => $i,
+                        'date' => $quotaDate->format('Y-m-d'),
+                        'amount' => $quotaAmounts[$i - 1],
+                    ];
+                }
+
+                $contract->update([
+                    'months_number' => $monthsForInterest,
+                    'quotas_number' => $quotas,
+                    'percentage' => $percentage,
+                    'interest' => $interest,
+                    'payable_amount' => $payableAmount,
+                    'quota_amount' => $quotaAmounts[0] ?? 0,
+                    'date' => $request->date,
+                    'first_payment_date' => reset($quotaDates)['date'],
+                    'last_payment_date' => end($quotaDates)['date'],
+                ]);
+
+                $contract->quotas()->delete();
+
+                if ($contract->client_type == 'Grupo') {
+                    $members = json_decode($contract->people, true) ?: [];
+                    $memberPayables = $this->buildMemberPayables($members, $payableAmount, $requestedAmount);
+
+                    foreach ($members as $index => $member) {
+                        $memberQuotaAmounts = $this->buildAdjustedQuotaAmounts($memberPayables[$index] ?? 0, count($quotaDates));
+
+                        foreach ($quotaDates as $quotaIndex => $quotaDate) {
+                            $memberQuota = $memberQuotaAmounts[$quotaIndex] ?? 0;
+                            Quota::create([
+                                'contract_id' => $contract->id,
+                                'person_document' => $member['document'] ?? null,
+                                'person_name' => $member['name'] ?? null,
+                                'number' => $quotaDate['number'],
+                                'amount' => $memberQuota,
+                                'debt' => $memberQuota,
+                                'date' => $quotaDate['date'],
+                            ]);
+                        }
+                    }
+                } else {
+                    foreach ($quotaDates as $quotaDate) {
+                        Quota::create([
+                            'contract_id' => $contract->id,
+                            'number' => $quotaDate['number'],
+                            'amount' => $quotaDate['amount'],
+                            'debt' => $quotaDate['amount'],
+                            'date' => $quotaDate['date'],
+                        ]);
+                    }
+                }
+
+                $createdQuotaTotal = round($contract->quotas()->sum('amount'), 2);
+                if (abs($createdQuotaTotal - round($payableAmount, 2)) > 0.01) {
+                    throw new \Exception('La suma de las cuotas no coincide con el monto total a devolver.');
+                }
+
+                DB::commit();
+
+                return response()->json([
+                    'status' => true
+                ]);
+            } catch (\Exception $e) {
+                DB::rollBack();
+                Log::error('Error al recalcular contrato: ' . $e->getMessage());
+
+                return response()->json([
+                    'status' => false,
+                    'error' => 'Error al recalcular el contrato: ' . $e->getMessage()
+                ]);
+            }
         }
 
         $data = [];
