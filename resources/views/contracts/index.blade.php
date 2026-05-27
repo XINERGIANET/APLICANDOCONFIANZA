@@ -133,6 +133,7 @@
                                             <i class="ti ti-hash icon"></i>
                                         </button>
                                       <button class="btn btn-icon btn-warning btn-recalculate"
+                                      style="display: none"
                                             data-id="{{ $contract->id }}"
                                             data-client="{{ $contract->client_type == 'Personal' ? $contract->name : $contract->group_name }}"
                                             data-requested="{{ $contract->requested_amount }}"
