@@ -1,1 +1,1 @@
-fix: Eliminar botón de recalculo de contrato en la vista de contratos
+fix: Ajustar cálculos de monto a pagar e interés en el controlador de contratos
