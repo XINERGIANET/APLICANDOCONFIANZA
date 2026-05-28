@@ -81,6 +81,7 @@
                         <th>Monto</th>
                         <th>Saldo</th>
                         <th>Fecha de pago</th>
+                        <th class="text-center">Detalles</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -95,11 +96,15 @@
                                 $debt = $group->sum('debt');
                             @endphp
                             <tr>
-                                <td>
-                                    {{ optional($quota->contract)->client() }}
+                                <td>{{ optional($quota->contract)->client() }}</td>
+                                <td>{{ $quota->number }}</td>
+                                <td>{{ number_format($quota->amount, 2) }}</td>
+                                <td>{{ number_format($quota->debt, 2) }}</td>
+                                <td>{{ $quota->date->format('d/m/Y') }}</td>
+                                <td class="text-center">
                                     @if (optional($quota->contract)->client_type == 'Grupo')
                                         <button type="button"
-                                            class="btn btn-link btn-sm p-0 ms-2 text-primary group-details-btn"
+                                            class="btn btn-primary btn-icon group-details-btn"
                                             data-contract-id="{{ $quota->contract_id }}"
                                             title="Ver integrantes del grupo"
                                             aria-label="Ver integrantes del grupo">
@@ -107,10 +112,6 @@
                                         </button>
                                     @endif
                                 </td>
-                                <td>{{ $quota->number }}</td>
-                                <td>{{ number_format($quota->amount, 2) }}</td>
-                                <td>{{ number_format($quota->debt, 2) }}</td>
-                                <td>{{ $quota->date->format('d/m/Y') }}</td>
                             </tr>
                         @endforeach
                     @else
@@ -190,14 +191,17 @@
                             html += '<thead><tr><th>Integrante</th><th>DNI</th><th>Cuotas</th><th>Deuda</th><th>Pagadas</th><th>Pendientes</th></tr></thead>';
                             html += '<tbody>';
                             data.members.forEach(function (member) {
-                                html += '<tr>';
-                                html += '<td>' + (member.name || 'Sin nombre') + '</td>';
-                                html += '<td>' + (member.document || '—') + '</td>';
-                                html += '<td>' + (member.quotas_count || 0) + '</td>';
-                                html += '<td>S/' + Number(member.debt_total || 0).toFixed(2) + '</td>';
-                                html += '<td>' + (member.paid_quotas || 0) + '</td>';
-                                html += '<td>' + (member.pending_quotas || 0) + '</td>';
-                                html += '</tr>';
+                                // Solo mostrar si tiene nombre o documento
+                                if ((member.name && member.name.trim() !== '') || (member.document && member.document.trim() !== '')) {
+                                    html += '<tr>';
+                                    html += '<td>' + (member.name || '') + '</td>';
+                                    html += '<td>' + (member.document || '') + '</td>';
+                                    html += '<td>' + (member.quotas_count || 0) + '</td>';
+                                    html += '<td>S/' + Number(member.debt_total || 0).toFixed(2) + '</td>';
+                                    html += '<td>' + (member.paid_quotas || 0) + '</td>';
+                                    html += '<td>' + (member.pending_quotas || 0) + '</td>';
+                                    html += '</tr>';
+                                }
                             });
                             html += '</tbody></table>';
                             html += '</div>';

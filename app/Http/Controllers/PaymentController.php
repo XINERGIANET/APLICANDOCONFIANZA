@@ -926,26 +926,28 @@ class PaymentController extends Controller
             }
 
             $members = [];
-
             foreach ($people as $person) {
                 $key = trim($person['document'] ?? '') . '|' . trim($person['name'] ?? '');
-                $members[] = array_merge([
-                    'document' => $person['document'] ?? '',
-                    'name' => $person['name'] ?? '',
-                    'address' => $person['address'] ?? '',
-                ], $memberMap[$key] ?? [
-                    'quotas_count' => 0,
-                    'amount_total' => 0,
-                    'debt_total' => 0,
-                    'paid_quotas' => 0,
-                    'pending_quotas' => 0,
-                ]);
+                // Solo agregar si tiene nombre o documento
+                if (($person['name'] ?? '') !== '' || ($person['document'] ?? '') !== '') {
+                    $members[] = array_merge([
+                        'document' => $person['document'] ?? '',
+                        'name' => $person['name'] ?? '',
+                        'address' => $person['address'] ?? '',
+                    ], $memberMap[$key] ?? [
+                        'quotas_count' => 0,
+                        'amount_total' => 0,
+                        'debt_total' => 0,
+                        'paid_quotas' => 0,
+                        'pending_quotas' => 0,
+                    ]);
+                }
             }
-
+            // Agregar miembros que tengan cuotas pero no estén en people
             foreach ($memberMap as $key => $summary) {
                 if (!collect($members)->contains(function ($member) use ($key, $summary) {
                     return (trim($member['document'] ?? '') . '|' . trim($member['name'] ?? '')) === $key;
-                })) {
+                }) && (($summary['name'] ?? '') !== '' || ($summary['document'] ?? '') !== '')) {
                     $members[] = [
                         'document' => $summary['document'],
                         'name' => $summary['name'],
