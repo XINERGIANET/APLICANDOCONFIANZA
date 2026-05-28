@@ -878,6 +878,117 @@ class PaymentController extends Controller
         }
     }
 
+    public function groupDetails(Contract $contract)
+    {
+        try {
+            if ($contract->client_type != 'Grupo') {
+                return response()->json([
+                    'status' => false,
+                    'error' => 'Este no es un contrato de grupo'
+                ], 422);
+            }
+
+            $people = collect(json_decode($contract->people ?? '[]', true) ?: [])
+                ->map(function ($person) {
+                    return [
+                        'document' => $person['document'] ?? '',
+                        'name' => $person['name'] ?? '',
+                        'address' => $person['address'] ?? '',
+                    ];
+                });
+
+            $memberSummaries = Quota::where('contract_id', $contract->id)
+                ->select(
+                    'person_document',
+                    'person_name',
+                    DB::raw('COUNT(*) as quotas_count'),
+                    DB::raw('SUM(amount) as amount_total'),
+                    DB::raw('SUM(debt) as debt_total'),
+                    DB::raw('SUM(CASE WHEN paid = 1 THEN 1 ELSE 0 END) as paid_quotas'),
+                    DB::raw('SUM(CASE WHEN paid = 0 THEN 1 ELSE 0 END) as pending_quotas')
+                )
+                ->groupBy('person_document', 'person_name')
+                ->get();
+
+            $memberMap = [];
+
+            foreach ($memberSummaries as $member) {
+                $key = trim($member->person_document ?: '') . '|' . trim($member->person_name ?: '');
+                $memberMap[$key] = [
+                    'document' => $member->person_document,
+                    'name' => $member->person_name,
+                    'quotas_count' => (int) $member->quotas_count,
+                    'amount_total' => (float) $member->amount_total,
+                    'debt_total' => (float) $member->debt_total,
+                    'paid_quotas' => (int) $member->paid_quotas,
+                    'pending_quotas' => (int) $member->pending_quotas,
+                ];
+            }
+
+            $members = [];
+
+            foreach ($people as $person) {
+                $key = trim($person['document'] ?? '') . '|' . trim($person['name'] ?? '');
+                $members[] = array_merge([
+                    'document' => $person['document'] ?? '',
+                    'name' => $person['name'] ?? '',
+                    'address' => $person['address'] ?? '',
+                ], $memberMap[$key] ?? [
+                    'quotas_count' => 0,
+                    'amount_total' => 0,
+                    'debt_total' => 0,
+                    'paid_quotas' => 0,
+                    'pending_quotas' => 0,
+                ]);
+            }
+
+            foreach ($memberMap as $key => $summary) {
+                if (!collect($members)->contains(function ($member) use ($key, $summary) {
+                    return (trim($member['document'] ?? '') . '|' . trim($member['name'] ?? '')) === $key;
+                })) {
+                    $members[] = [
+                        'document' => $summary['document'],
+                        'name' => $summary['name'],
+                        'address' => '',
+                        'quotas_count' => $summary['quotas_count'],
+                        'amount_total' => $summary['amount_total'],
+                        'debt_total' => $summary['debt_total'],
+                        'paid_quotas' => $summary['paid_quotas'],
+                        'pending_quotas' => $summary['pending_quotas'],
+                    ];
+                }
+            }
+
+            $totals = Quota::where('contract_id', $contract->id)
+                ->select(
+                    DB::raw('COUNT(*) as total_quotas'),
+                    DB::raw('COALESCE(SUM(amount), 0) as total_amount'),
+                    DB::raw('COALESCE(SUM(debt), 0) as total_debt')
+                )
+                ->first();
+
+            return response()->json([
+                'status' => true,
+                'contract' => [
+                    'id' => $contract->id,
+                    'group_name' => $contract->group_name,
+                    'client_type' => $contract->client_type,
+                ],
+                'members' => $members,
+                'totals' => [
+                    'total_quotas' => (int) $totals->total_quotas,
+                    'total_amount' => (float) $totals->total_amount,
+                    'total_debt' => (float) $totals->total_debt,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'error' => 'Error al obtener detalles del grupo: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
     public function getGroupPayments(Request $request, Payment $payment)
     {
         try {
