@@ -926,28 +926,46 @@ class PaymentController extends Controller
             }
 
             $members = [];
+            $usedKeys = [];
             foreach ($people as $person) {
-                $key = trim($person['document'] ?? '') . '|' . trim($person['name'] ?? '');
-                // Solo agregar si tiene nombre o documento
-                if (($person['name'] ?? '') !== '' || ($person['document'] ?? '') !== '') {
-                    $members[] = array_merge([
-                        'document' => $person['document'] ?? '',
-                        'name' => $person['name'] ?? '',
-                        'address' => $person['address'] ?? '',
-                    ], $memberMap[$key] ?? [
-                        'quotas_count' => 0,
-                        'amount_total' => 0,
-                        'debt_total' => 0,
-                        'paid_quotas' => 0,
-                        'pending_quotas' => 0,
-                    ]);
+                $doc = trim($person['document'] ?? '');
+                $name = trim($person['name'] ?? '');
+                if ($doc === '' && $name === '') continue;
+
+                // Buscar coincidencia exacta por documento y nombre
+                $found = null;
+                foreach ($memberMap as $key => $summary) {
+                    if ($doc !== '' && $summary['document'] === $doc) {
+                        $found = $summary;
+                        $usedKeys[] = $key;
+                        break;
+                    }
                 }
+                // Si no se encontró por documento, buscar por nombre
+                if (!$found && $name !== '') {
+                    foreach ($memberMap as $key => $summary) {
+                        if ($summary['name'] === $name && !in_array($key, $usedKeys)) {
+                            $found = $summary;
+                            $usedKeys[] = $key;
+                            break;
+                        }
+                    }
+                }
+                $members[] = [
+                    'document' => $doc,
+                    'name' => $name,
+                    'address' => $person['address'] ?? '',
+                    'quotas_count' => $found['quotas_count'] ?? 0,
+                    'amount_total' => $found['amount_total'] ?? 0,
+                    'debt_total' => $found['debt_total'] ?? 0,
+                    'paid_quotas' => $found['paid_quotas'] ?? 0,
+                    'pending_quotas' => $found['pending_quotas'] ?? 0,
+                ];
             }
             // Agregar miembros que tengan cuotas pero no estén en people
             foreach ($memberMap as $key => $summary) {
-                if (!collect($members)->contains(function ($member) use ($key, $summary) {
-                    return (trim($member['document'] ?? '') . '|' . trim($member['name'] ?? '')) === $key;
-                }) && (($summary['name'] ?? '') !== '' || ($summary['document'] ?? '') !== '')) {
+                if (in_array($key, $usedKeys)) continue;
+                if (($summary['name'] ?? '') !== '' || ($summary['document'] ?? '') !== '') {
                     $members[] = [
                         'document' => $summary['document'],
                         'name' => $summary['name'],
