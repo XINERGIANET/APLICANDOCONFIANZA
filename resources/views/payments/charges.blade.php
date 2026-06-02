@@ -85,18 +85,21 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @php
-                        $groupedQuotas = $quotas->groupBy(fn($q) => $q->contract_id . '_' . $q->number);
-                    @endphp
-                    @if ($groupedQuotas->count() > 0)
-                        @foreach ($groupedQuotas as $group)
-                            @php
-                                $quota = $group->first();
-                                $amount = $group->sum('amount');
-                                $debt = $group->sum('debt');
-                            @endphp
+                    @if ($quotas->count() > 0)
+                        @foreach ($quotas as $quota)
                             <tr>
-                                <td>{{ optional($quota->contract)->client() }}</td>
+                                <td>
+                                    {{ optional($quota->contract)->client() }}
+                                    @if ($quota->person_name || $quota->person_document)
+                                        <br>
+                                        <small class="text-muted">
+                                            {{ $quota->person_name ?? $quota->person_document }}
+                                            @if ($quota->person_name && $quota->person_document)
+                                                - {{ $quota->person_document }}
+                                            @endif
+                                        </small>
+                                    @endif
+                                </td>
                                 <td>{{ $quota->number }}</td>
                                 <td>{{ number_format($quota->amount, 2) }}</td>
                                 <td>{{ number_format($quota->debt, 2) }}</td>
@@ -116,7 +119,7 @@
                         @endforeach
                     @else
                         <tr>
-                            <td colspan="5" align="center">No se han encontrado resultados</td>
+                            <td colspan="6" align="center">No se han encontrado resultados</td>
                         </tr>
                     @endif
                 </tbody>
