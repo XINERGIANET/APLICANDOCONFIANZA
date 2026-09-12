@@ -577,7 +577,6 @@
                         detectGroupType(data.quotas);
                         
                         var firstAvailableIndex = -1;
-
                         data.quotas.forEach(function(quota, index) {
                             var amount = formatMoney(quota.amount);
                             var debt = formatMoney(quota.debt);

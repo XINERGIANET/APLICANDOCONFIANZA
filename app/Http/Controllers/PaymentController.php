@@ -625,6 +625,7 @@ class PaymentController extends Controller
                     $validator->errors()->add('amount', 'El pago debe ser menor o igual al saldo pendiente');
                 }
 
+
             } else {
                 $validator->errors()->add('quota_id', 'La cuota no se encuentra');
             }
